@@ -1,0 +1,33 @@
+# Arquivos compilados
+*.class
+# Logs
+*.log
+# Arquivos de pacotes
+*.jar
+*.war
+*.ear
+*.nar
+*.zip
+*.tar.gz
+*.rar
+# Logs de crash da JVM
+hs_err_pid*
+replay_pid*
+# Diretórios de build (Maven e Gradle)
+target/
+build/
+# Configurações do IntelliJ IDEA
+idea/
+*.iml
+# Configurações do Eclipse
+settings/
+classpath
+project
+# Configurações do NetBeans
+nbproject/private/
+build/
+dist/
+# Configurações do Visual Studio Code
+vscode/
+# Arquivos do sistema operacional macOS
+DS_Store
