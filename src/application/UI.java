@@ -1,7 +1,12 @@
 package application;
 
+import boardGame.Position;
 import chess.ChessPiece;
+import chess.ChessPosition;
 import chess.Color;
+
+import java.util.InputMismatchException;
+import java.util.Scanner;
 
 public class UI {
 
@@ -46,5 +51,17 @@ public class UI {
             }
         }
         System.out.print(" ");
+    }
+
+    public static ChessPosition readChessPosition(Scanner sc) {
+        try {
+            String s = sc.nextLine();
+            char column = s.charAt(0);
+            int row = Integer.parseInt(s.substring(1));
+            return new ChessPosition(column, row);
+        }
+        catch (RuntimeException e) {
+            throw new InputMismatchException("Erro lendo posicao de xadrez.");
+        }
     }
 }
