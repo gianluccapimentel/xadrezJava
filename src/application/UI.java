@@ -6,7 +6,9 @@ import chess.ChessPiece;
 import chess.ChessPosition;
 import chess.Color;
 
+import java.util.Arrays;
 import java.util.InputMismatchException;
+import java.util.List;
 import java.util.Scanner;
 
 public class UI {
@@ -35,8 +37,10 @@ public class UI {
         System.out.flush();
     }
 
-    public static void printMatch(ChessMatch chessMatch) {
+    public static void printMatch(ChessMatch chessMatch, List<ChessPiece> captured) {
         printBoard(chessMatch.getPieces());
+        System.out.println();
+        printCapturedPieces(captured);
         System.out.println();
         System.out.println("Turno: " + chessMatch.getTurn());
         System.out.println("Esperando jogador: " + chessMatch.getCurrentPlayer());
@@ -92,5 +96,27 @@ public class UI {
         catch (RuntimeException e) {
             throw new InputMismatchException("Erro lendo posicao de xadrez.");
         }
+    }
+
+    private static void printCapturedPieces(List<ChessPiece> captured) {
+        List<ChessPiece> white = captured.
+                                    stream().
+                                    filter(x -> x.getColor() == Color.WHITE).
+                                    toList();
+
+        List<ChessPiece> black = captured.
+                                    stream().
+                                    filter(x -> x.getColor() == Color.BLACK).
+                                    toList();
+
+        System.out.println("Pecas capturadas:");
+        System.out.print("Pecas brancas:");
+        System.out.print(ANSI_WHITE);
+        System.out.println(Arrays.toString(white.toArray()));
+        System.out.print(ANSI_RESET);
+        System.out.print("Pecas pretas:");
+        System.out.print(ANSI_YELLOW);
+        System.out.println(Arrays.toString(black.toArray()));
+        System.out.print(ANSI_RESET);
     }
 }
