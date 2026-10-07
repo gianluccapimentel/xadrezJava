@@ -5,6 +5,7 @@ import chess.ChessMatch;
 import chess.ChessPiece;
 import chess.ChessPosition;
 import chess.Color;
+import jdk.swing.interop.SwingInterOpUtils;
 
 import java.util.Arrays;
 import java.util.InputMismatchException;
@@ -44,6 +45,11 @@ public class UI {
         System.out.println();
         System.out.println("Turno: " + chessMatch.getTurn());
         System.out.println("Esperando jogador: " + chessMatch.getCurrentPlayer());
+        if (chessMatch.getCheck()) {
+            System.out.println(ANSI_RED);
+            System.out.print("!!!CHEQUE!!!");
+            System.out.println(ANSI_RESET);
+        }
     }
 
     public static void printBoard(ChessPiece[][] pieces) {
