@@ -3,7 +3,9 @@ package chess;
 import boardGame.Board;
 import boardGame.Piece;
 import boardGame.Position;
+import chess.pieces.Bishop;
 import chess.pieces.King;
+import chess.pieces.Knight;
 import chess.pieces.Rook;
 
 import java.util.ArrayList;
@@ -115,7 +117,7 @@ public class ChessMatch {
 
         if (capturedPiece != null) {
             piecesOnTheBoard.remove(capturedPiece);
-            capturedPieces.add(p);
+            capturedPieces.add(capturedPiece);
         }
         return capturedPiece;
     }
@@ -162,7 +164,7 @@ public class ChessMatch {
     }
 
     private boolean testCheckMate(Color color) {
-        if (!check) {
+        if (!testCheck(color)) {
             return false;
         }
 
@@ -181,7 +183,7 @@ public class ChessMatch {
                         Piece capturedPiece = makeMove(source, target);
                         boolean testCheck = testCheck(color);
                         undoMove(source, target, capturedPiece);
-                        if (!testCheck(color)) {
+                        if (!testCheck) {
                             return false;
                         }
                     }
@@ -202,8 +204,8 @@ public class ChessMatch {
 
     private void initialSetup() {
 
-        placeNewPiece('h', 7, new Rook(board, Color.WHITE));
-        placeNewPiece('d', 1, new Rook(board, Color.WHITE));
+        placeNewPiece('h', 7, new Bishop(board, Color.WHITE));
+        placeNewPiece('d', 1, new Knight(board, Color.WHITE));
         placeNewPiece('e', 1, new King(board, Color.WHITE));
 
         placeNewPiece('b', 8, new Rook(board, Color.BLACK));
