@@ -61,7 +61,7 @@ public class ChessMatch {
     }
 
     public ChessPiece getPromoted() {
-        return getPromoted();
+        return promoted;
     }
 
     public boolean[][] possibleMoves(ChessPosition sourcePosition) {
