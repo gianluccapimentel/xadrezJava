@@ -5,7 +5,6 @@ import chess.ChessMatch;
 import chess.ChessPiece;
 import chess.ChessPosition;
 import chess.Color;
-import jdk.swing.interop.SwingInterOpUtils;
 
 import java.util.Arrays;
 import java.util.InputMismatchException;
