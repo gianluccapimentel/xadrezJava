@@ -53,3 +53,18 @@ java -cp bin network.ProtocolSelfTest
 ```
 
 O teste simula dois processos jogando o mate do pastor trocando apenas texto, e confere que os dois tabuleiros terminam em xeque-mate.
+
+## Como o jogo usa o protocolo
+
+- `MatchProtocol` liga o protocolo ao `ChessMatch`. `localMove` executa o lance do jogador local e devolve as mensagens a enviar. `receive` valida e aplica o lance do adversário, e devolve `#ERRO` quando algo não confere.
+- `MessageChannel` é o canal de mensagens. Por enquanto existe só o `LocalChannel`, um par de filas em memória que trafega o mesmo texto que vai pelo socket. No sprint 2 entra o canal por socket sem mudar o resto do jogo.
+
+Para jogar pelo protocolo no mesmo terminal:
+
+```
+javac -d bin $(find src -name "*.java")
+java -cp bin application.Program
+# escolha a opção 2
+```
+
+Cada jogador tem o seu próprio tabuleiro. A tela mostra as últimas mensagens trocadas (por exemplo, `jogador 1 enviou: 1Qh5f7` e depois `#MATE 1`).
