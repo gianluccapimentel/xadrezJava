@@ -64,6 +64,9 @@ public class MatchProtocol {
         out.add(Message.move(vez.getMe(), piece, source, target, promotion));
         out.addAll(statusMessages(vez.getMe()));
         vez.passarVez();
+        if (match.getCheckmate()) {
+            vez.encerrar();
+        }
         return out;
     }
 
@@ -91,11 +94,17 @@ public class MatchProtocol {
                     replies.add(Message.erro("Estado divergente: " + m.toWire() + " não confere com o tabuleiro"));
                 }
             }
-            case SAIR -> opponentQuit = true;
+            case SAIR -> markOpponentGone();
             case ERRO -> lastError = m.getText();
             case BEMVINDO -> { /* tratado na conexão (sprint 2) */ }
         }
         return replies;
+    }
+
+    /** O adversário saiu ou a conexão caiu: a partida acaba. */
+    public synchronized void markOpponentGone() {
+        opponentQuit = true;
+        vez.encerrar();
     }
 
     private void applyOpponentMove(Message m) {
@@ -115,6 +124,9 @@ public class MatchProtocol {
             match.replacePromotedPiece(String.valueOf(m.getPromotion()));
         }
         vez.passarVez();
+        if (match.getCheckmate()) {
+            vez.encerrar();
+        }
     }
 
     private List<Message> statusMessages(int mover) {

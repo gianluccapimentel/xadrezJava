@@ -14,6 +14,7 @@ public class TurnControl {
 
     private final int me;  // 1 se este processo é o servidor (brancas), 2 se é o cliente (pretas)
     private int vez = 1;   // as brancas começam
+    private boolean ended; // partida terminou (mate, desistência ou conexão perdida)
 
     public TurnControl(int me) {
         if (me != 1 && me != 2) {
@@ -54,10 +55,23 @@ public class TurnControl {
         notifyAll(); // acorda quem estiver esperando a vez (usado no sprint 2)
     }
 
-    /** Bloqueia a thread atual até chegar a vez deste processo. */
+    /**
+     * Bloqueia a thread atual até chegar a vez deste processo
+     * ou até a partida terminar.
+     */
     public synchronized void esperarMinhaVez() throws InterruptedException {
-        while (vez != me) {
+        while (vez != me && !ended) {
             wait();
         }
+    }
+
+    /** Marca a partida como terminada e acorda quem estiver esperando. */
+    public synchronized void encerrar() {
+        ended = true;
+        notifyAll();
+    }
+
+    public synchronized boolean isEnded() {
+        return ended;
     }
 }
