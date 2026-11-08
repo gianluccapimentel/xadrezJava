@@ -7,8 +7,11 @@ import chess.ChessPosition;
 import network.LocalChannel;
 import network.MatchProtocol;
 import network.Message;
+import network.NetworkGame;
 import network.ProtocolException;
+import network.SocketMessageChannel;
 
+import java.io.IOException;
 import java.util.*;
 
 public class Program {
@@ -17,13 +20,130 @@ public class Program {
         Scanner sc = new Scanner(System.in);
         System.out.println("1 - Jogo local (original)");
         System.out.println("2 - Jogo local pelo protocolo de mensagens");
+        System.out.println("3 - Criar partida em rede (servidor, brancas)");
+        System.out.println("4 - Entrar em partida em rede (cliente, pretas)");
         System.out.print("Escolha: ");
         String option = sc.nextLine().trim();
 
-        if (option.equals("2")) {
-            playThroughProtocol(sc);
+        switch (option) {
+            case "2" -> playThroughProtocol(sc);
+            case "3" -> playNetwork(sc, true);
+            case "4" -> playNetwork(sc, false);
+            default -> playLocal(sc);
+        }
+    }
+
+    /**
+     * Partida em rede: cada jogador roda o programa no seu terminal.
+     * O servidor joga de brancas (jogador 1) e o cliente de pretas (jogador 2).
+     */
+    private static void playNetwork(Scanner sc, boolean host) throws InterruptedException {
+        int me = host ? 1 : 2;
+        System.out.print("Porta [" + SocketMessageChannel.DEFAULT_PORT + "]: ");
+        String portText = sc.nextLine().trim();
+        int port = portText.isEmpty() ? SocketMessageChannel.DEFAULT_PORT : Integer.parseInt(portText);
+
+        SocketMessageChannel channel;
+        try {
+            if (host) {
+                System.out.println("Aguardando adversário na porta " + port + "...");
+                channel = SocketMessageChannel.host(port);
+            } else {
+                System.out.print("Endereço do servidor [localhost]: ");
+                String address = sc.nextLine().trim();
+                channel = SocketMessageChannel.join(address.isEmpty() ? "localhost" : address, port);
+            }
+        } catch (IOException e) {
+            System.out.println("Não foi possível conectar: " + e.getMessage());
+            return;
+        }
+        System.out.println("Conectado a " + channel.remoteAddress());
+
+        NetworkGame game = new NetworkGame(me, channel);
+        game.start();
+        String who = host ? "BRANCAS (jogador 1)" : "PRETAS (jogador 2)";
+        String error = null;
+
+        while (!game.isOver()) {
+            if (!game.getProtocol().getVez().isMyTurn()) {
+                drawNetwork(game, who, error);
+                System.out.println("Aguardando o lance do adversário...");
+                error = null;
+                game.waitMyTurn();
+                continue;
+            }
+            try {
+                drawNetwork(game, who, error);
+                error = null;
+                System.out.println("Sua vez. Origem (ou \"sair\"): ");
+                ChessPosition source = readPositionOrQuit(sc);
+                if (source == null) {
+                    game.quit();
+                    break;
+                }
+                boolean[][] possibleMoves = game.getProtocol().getMatch().possibleMoves(source);
+                UI.clearScreen();
+                UI.printBoard(game.getProtocol().getMatch().getPieces(), possibleMoves);
+                System.out.println();
+                System.out.println("Destino: ");
+                ChessPosition target = readPositionOrQuit(sc);
+                if (target == null) {
+                    game.quit();
+                    break;
+                }
+                game.play(source, target, () -> readPromotion(sc).charAt(0));
+            }
+            catch (ChessException | ProtocolException | InputMismatchException e) {
+                error = e.getMessage();
+            }
+            catch (IOException e) {
+                System.out.println("Conexão perdida: " + e.getMessage());
+                break;
+            }
+        }
+
+        drawNetwork(game, who, null);
+        if (game.getProtocol().getMatch().getCheckmate()) {
+            boolean iWon = game.getProtocol().getMatch().getCurrentPlayer() == (host ? chess.Color.WHITE : chess.Color.BLACK);
+            System.out.println(iWon ? "Você venceu!" : "Você perdeu.");
+        } else if (game.getProtocol().isOpponentQuit()) {
+            System.out.println("O adversário saiu da partida.");
         } else {
-            playLocal(sc);
+            System.out.println("Você saiu da partida.");
+        }
+        game.close();
+    }
+
+    private static void drawNetwork(NetworkGame game, String who, String error) {
+        UI.clearScreen();
+        System.out.println("Você joga com as " + who);
+        UI.printMatch(game.getProtocol().getMatch(), game.getProtocol().getCaptured());
+        List<String> log = game.lastLog(4);
+        if (!log.isEmpty()) {
+            System.out.println();
+            System.out.println("Mensagens (últimas 4):");
+            log.forEach(line -> System.out.println("  " + line));
+        }
+        String peerError = game.getProtocol().takeLastError();
+        if (peerError != null) {
+            System.out.println("O adversário recusou a mensagem: " + peerError);
+        }
+        if (error != null) {
+            System.out.println(error);
+        }
+        System.out.println();
+    }
+
+    /** Lê uma casa (ex.: e2). Devolve null se o jogador digitar "sair". */
+    private static ChessPosition readPositionOrQuit(Scanner sc) {
+        String s = sc.nextLine().trim();
+        if (s.equalsIgnoreCase("sair")) {
+            return null;
+        }
+        try {
+            return new ChessPosition(s.charAt(0), Integer.parseInt(s.substring(1)));
+        } catch (RuntimeException e) {
+            throw new InputMismatchException("Erro lendo posicao de xadrez.");
         }
     }
 
