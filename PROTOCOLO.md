@@ -68,3 +68,46 @@ java -cp bin application.Program
 ```
 
 Cada jogador tem o seu próprio tabuleiro. A tela mostra as últimas mensagens trocadas (por exemplo, `jogador 1 enviou: 1Qh5f7` e depois `#MATE 1`).
+
+## Partida em rede (sprint 2)
+
+Cada jogador roda o programa no seu terminal. Pode ser na mesma máquina, como pede o enunciado, ou em duas máquinas da mesma rede.
+
+```
+javac -d bin $(find src -name "*.java")
+
+# terminal 1: servidor, joga de brancas
+java -cp bin application.Program      # opção 3, porta 5000
+
+# terminal 2: cliente, joga de pretas
+java -cp bin application.Program      # opção 4, porta 5000, endereço localhost
+```
+
+Na sua vez, digite a casa de origem e a de destino (ex.: `e2` e `e4`). Para desistir, digite `sair`.
+
+### Como funciona
+
+1. O servidor abre um `ServerSocket` e espera. Quando o cliente conecta, o servidor envia `#BEMVINDO 2`.
+2. Cada processo cria um `NetworkGame` com duas threads:
+   - **thread do jogo:** lê o teclado na sua vez e envia o lance;
+   - **thread receptora:** lê o socket o tempo todo, valida e aplica o lance do adversário no seu tabuleiro.
+3. Quando não é a sua vez, a thread do jogo dorme em `TurnControl.esperarMinhaVez()` (`wait()`). Quando a receptora aplica o lance do adversário, ela chama `passarVez()` (`notifyAll()`) e acorda o jogador.
+4. A partida termina com `#MATE`, `#SAIR` ou se a conexão cair. Nos três casos `TurnControl.encerrar()` acorda quem estiver esperando.
+
+### Exclusão mútua até aqui
+
+| Recurso compartilhado entre as threads | Como é protegido |
+|---|---|
+| variável `vez` (`TurnControl`) | métodos `synchronized`, com `wait`/`notifyAll` |
+| tabuleiro (`MatchProtocol` / `ChessMatch`) | métodos `synchronized` de `MatchProtocol` |
+| escrita no socket | `SocketMessageChannel.send` é `synchronized`, para as linhas não se misturarem |
+| histórico de mensagens | `Collections.synchronizedList` |
+
+No sprint 3 entra a memória compartilhada entre os dois **processos**: um arquivo mapeado em memória, protegido com `FileLock`.
+
+### Testes
+
+```
+java -cp bin network.ProtocolSelfTest   # protocolo e regras (63 verificações)
+java -cp bin network.NetworkSelfTest    # mate do pastor e desistência por localhost
+```
