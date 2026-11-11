@@ -9,6 +9,7 @@ import network.MatchProtocol;
 import network.Message;
 import network.NetworkGame;
 import network.ProtocolException;
+import network.SharedGameState;
 import network.SocketMessageChannel;
 
 import java.io.IOException;
@@ -44,14 +45,17 @@ public class Program {
         int port = portText.isEmpty() ? SocketMessageChannel.DEFAULT_PORT : Integer.parseInt(portText);
 
         SocketMessageChannel channel;
+        SharedGameState shared = null;
         try {
             if (host) {
+                shared = openSharedMemory(port, true);
                 System.out.println("Aguardando adversário na porta " + port + "...");
                 channel = SocketMessageChannel.host(port);
             } else {
                 System.out.print("Endereço do servidor [localhost]: ");
                 String address = sc.nextLine().trim();
                 channel = SocketMessageChannel.join(address.isEmpty() ? "localhost" : address, port);
+                shared = openSharedMemory(port, false);
             }
         } catch (IOException e) {
             System.out.println("Não foi possível conectar: " + e.getMessage());
@@ -59,7 +63,7 @@ public class Program {
         }
         System.out.println("Conectado a " + channel.remoteAddress());
 
-        NetworkGame game = new NetworkGame(me, channel);
+        NetworkGame game = new NetworkGame(me, channel, shared);
         game.start();
         String who = host ? "BRANCAS (jogador 1)" : "PRETAS (jogador 2)";
         String error = null;
@@ -114,10 +118,25 @@ public class Program {
         game.close();
     }
 
+    /** Abre a memória compartilhada da partida. O servidor grava o tabuleiro inicial. */
+    private static SharedGameState openSharedMemory(int port, boolean host) {
+        try {
+            SharedGameState shared = SharedGameState.open(SharedGameState.defaultPath(port));
+            if (host) {
+                shared.reset(new ChessMatch());
+            }
+            return shared;
+        } catch (IOException e) {
+            System.out.println("Memória compartilhada indisponível: " + e.getMessage());
+            return null;
+        }
+    }
+
     private static void drawNetwork(NetworkGame game, String who, String error) {
         UI.clearScreen();
         System.out.println("Você joga com as " + who);
         UI.printMatch(game.getProtocol().getMatch(), game.getProtocol().getCaptured());
+        System.out.println(game.getSharedStatus());
         List<String> log = game.lastLog(4);
         if (!log.isEmpty()) {
             System.out.println();
