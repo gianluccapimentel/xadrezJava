@@ -103,11 +103,70 @@ Na sua vez, digite a casa de origem e a de destino (ex.: `e2` e `e4`). Para desi
 | escrita no socket | `SocketMessageChannel.send` é `synchronized`, para as linhas não se misturarem |
 | histórico de mensagens | `Collections.synchronizedList` |
 
-No sprint 3 entra a memória compartilhada entre os dois **processos**: um arquivo mapeado em memória, protegido com `FileLock`.
+A memória compartilhada entre os **processos** está descrita na seção do sprint 3, logo abaixo.
 
 ### Testes
 
 ```
 java -cp bin network.ProtocolSelfTest   # protocolo e regras (63 verificações)
 java -cp bin network.NetworkSelfTest    # mate do pastor e desistência por localhost
+java -cp bin network.SharedMemorySelfTest  # memória compartilhada e exclusão mútua entre processos
 ```
+
+## Memória compartilhada (sprint 3)
+
+Os processos da partida compartilham um bloco de 128 bytes. A classe é `SharedGameState`. O bloco é um arquivo na pasta temporária (`xadrez-<porta>.mem`), mapeado na memória de cada processo com `FileChannel.map`, que devolve um `MappedByteBuffer`. O sistema operacional coloca as mesmas páginas de memória nos dois processos. Assim, o que um escreve o outro lê direto, sem passar pelo socket.
+
+### O que fica na memória
+
+| Offset | Tamanho | Conteúdo |
+|---|---|---|
+| 0 | 4 | número mágico `XADR` (diz que a partida começou) |
+| 4 | 4 | `vez` (1 ou 2) |
+| 8 | 4 | número de lances jogados |
+| 12 | 4 | situação: 0 jogando, 1 xeque, 2 xeque-mate, 3 desistência |
+| 16 | 4 | vencedor (0, 1 ou 2) |
+| 20 | 4 | tamanho do último lance |
+| 24 | 16 | último lance, no formato do protocolo (`1Pe2e4`) |
+| 40 | 64 | tabuleiro, uma letra por casa de a8 a h1 (maiúscula = brancas, minúscula = pretas, `.` = vazia) |
+| 104 | 8 | versão (soma 1 a cada escrita) |
+| 112 | 8 | contador usado no teste de exclusão mútua |
+
+### Quem lê e quem escreve
+
+1. O **servidor** cria a memória e grava o tabuleiro inicial antes de aceitar o cliente.
+2. Quem **joga** grava o novo estado na memória e **só depois** envia o lance pelo socket.
+3. Quem **recebe** aplica o lance no próprio tabuleiro, lê a memória e confere se os dois tabuleiros são iguais. A tela mostra `memória compartilhada: lance 7 confere (versão 8)`.
+4. Um **espectador** (opção 5 do menu) é um terceiro processo que não abre socket nenhum. Ele lê a memória a cada 300 ms e redesenha o tabuleiro quando a versão muda.
+
+Se os jogadores estiverem em máquinas diferentes, a memória não é a mesma e a conferência falha. Nesse caso o jogo desliga a memória compartilhada e continua só pelo socket.
+
+### Como é feita a exclusão mútua
+
+Toda leitura e escrita da memória passa por uma região crítica com duas travas, sempre na mesma ordem:
+
+1. **`ReentrantLock`** (estática): entre as threads do mesmo processo, a thread do jogo e a thread receptora.
+2. **`FileLock` exclusivo** (`channel.lock()`): entre processos diferentes. O sistema operacional garante que só um processo de cada vez segura essa trava.
+
+As duas são necessárias porque o `FileLock` pertence ao processo inteiro: duas threads da mesma JVM não podem segurá-lo ao mesmo tempo, porque a segunda leva `OverlappingFileLockException`.
+
+Com isso, nenhum processo lê um tabuleiro gravado pela metade e duas escritas nunca se misturam. O `SharedMemorySelfTest` prova isso: ele abre um segundo processo Java e os dois somam 1 no mesmo contador, 200.000 vezes cada. Com as travas, o total é sempre 400.000. Sem elas (testado removendo a região crítica), somas se perdem e o total fica menor, por exemplo 399.489.
+
+### Resumo das travas do projeto
+
+| Recurso | Quem disputa | Proteção |
+|---|---|---|
+| memória compartilhada (`SharedGameState`) | processos e threads | `FileLock` + `ReentrantLock` |
+| variável `vez` (`TurnControl`) | thread do jogo e receptora | `synchronized` + `wait`/`notifyAll` |
+| tabuleiro local (`MatchProtocol`) | thread do jogo e receptora | `synchronized` |
+| escrita no socket | thread do jogo e receptora | `synchronized` em `send` |
+
+### Para ver funcionando (três terminais)
+
+```
+java -cp bin application.Program   # terminal 1: opção 3 (servidor)
+java -cp bin application.Program   # terminal 2: opção 4 (cliente)
+java -cp bin application.Program   # terminal 3: opção 5 (espectador)
+```
+
+Esse é um bom roteiro para o vídeo de gameplay.

@@ -23,6 +23,7 @@ public class Program {
         System.out.println("2 - Jogo local pelo protocolo de mensagens");
         System.out.println("3 - Criar partida em rede (servidor, brancas)");
         System.out.println("4 - Entrar em partida em rede (cliente, pretas)");
+        System.out.println("5 - Assistir partida pela memória compartilhada");
         System.out.print("Escolha: ");
         String option = sc.nextLine().trim();
 
@@ -30,6 +31,7 @@ public class Program {
             case "2" -> playThroughProtocol(sc);
             case "3" -> playNetwork(sc, true);
             case "4" -> playNetwork(sc, false);
+            case "5" -> watch(sc);
             default -> playLocal(sc);
         }
     }
@@ -116,6 +118,61 @@ public class Program {
             System.out.println("Você saiu da partida.");
         }
         game.close();
+    }
+
+    /**
+     * Espectador: um terceiro processo que não usa socket nenhum. Ele só lê a
+     * memória compartilhada (com a mesma trava dos jogadores) e redesenha o
+     * tabuleiro quando a versão muda.
+     */
+    private static void watch(Scanner sc) throws InterruptedException {
+        System.out.print("Porta da partida [" + SocketMessageChannel.DEFAULT_PORT + "]: ");
+        String portText = sc.nextLine().trim();
+        int port = portText.isEmpty() ? SocketMessageChannel.DEFAULT_PORT : Integer.parseInt(portText);
+
+        try (SharedGameState shared = SharedGameState.open(SharedGameState.defaultPath(port))) {
+            long lastVersion = -1;
+            while (true) {
+                SharedGameState.Snapshot snap = shared.read();
+                if (snap != null && snap.versao() != lastVersion) {
+                    lastVersion = snap.versao();
+                    UI.clearScreen();
+                    System.out.println("Assistindo pela memória compartilhada: " + shared.getPath());
+                    printSnapshotBoard(snap.board());
+                    System.out.println();
+                    System.out.println("Lances: " + snap.lances() + "   Último: " + (snap.lastMove().isEmpty() ? "-" : snap.lastMove()));
+                    System.out.println("Vez do jogador " + snap.vez() + "   Situação: " + snap.statusText());
+                    System.out.println("Versão da memória: " + snap.versao());
+                    if (snap.status() == SharedGameState.MATE || snap.status() == SharedGameState.DESISTENCIA) {
+                        return;
+                    }
+                } else if (snap == null && lastVersion == -1) {
+                    System.out.println("Esperando a partida começar...");
+                    lastVersion = 0;
+                }
+                Thread.sleep(300);
+            }
+        } catch (IOException e) {
+            System.out.println("Não foi possível abrir a memória compartilhada: " + e.getMessage());
+        }
+    }
+
+    private static void printSnapshotBoard(String board) {
+        for (int i = 0; i < 8; i++) {
+            System.out.print((8 - i) + " ");
+            for (int j = 0; j < 8; j++) {
+                char c = board.charAt(i * 8 + j);
+                if (c == '.') {
+                    System.out.print("-" + UI.ANSI_RESET + " ");
+                } else if (Character.isUpperCase(c)) {
+                    System.out.print(UI.ANSI_WHITE + c + UI.ANSI_RESET + " ");
+                } else {
+                    System.out.print(UI.ANSI_YELLOW + Character.toUpperCase(c) + UI.ANSI_RESET + " ");
+                }
+            }
+            System.out.println();
+        }
+        System.out.println("  a b c d e f g h");
     }
 
     /** Abre a memória compartilhada da partida. O servidor grava o tabuleiro inicial. */
