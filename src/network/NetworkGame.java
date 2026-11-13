@@ -32,6 +32,7 @@ public class NetworkGame {
     // memória compartilhada (sprint 3); null quando não está disponível
     private volatile SharedGameState shared;
     private final AtomicInteger moves = new AtomicInteger();
+    private volatile boolean selfQuit;
     private volatile String sharedStatus = "memória compartilhada desligada";
 
     public NetworkGame(int me, MessageChannel channel) {
@@ -82,7 +83,7 @@ public class NetworkGame {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        if (!protocol.getMatch().getCheckmate()) {
+        if (!protocol.getMatch().getCheckmate() && !selfQuit) {
             protocol.markOpponentGone();
         }
     }
@@ -152,6 +153,7 @@ public class NetworkGame {
 
     /** Desiste: avisa o adversário e encerra. */
     public void quit() throws IOException {
+        selfQuit = true;
         if (shared != null) {
             try {
                 shared.write(protocol.getMatch(), protocol.getVez().getVez(), moves.get(),
@@ -164,6 +166,13 @@ public class NetworkGame {
         record("enviado: " + Message.sair(protocol.getVez().getMe()).toWire());
         protocol.getVez().encerrar();
         channel.close();
+    }
+
+    /** Espera a thread receptora terminar, no máximo ms milissegundos. */
+    public void awaitReceiver(long ms) throws InterruptedException {
+        if (receiver != null) {
+            receiver.join(ms);
+        }
     }
 
     public void close() {
@@ -180,6 +189,7 @@ public class NetworkGame {
 
     public MatchProtocol getProtocol() { return protocol; }
     public String getSharedStatus() { return sharedStatus; }
+    public boolean isSelfQuit() { return selfQuit; }
     public boolean isOver() { return protocol.getVez().isEnded(); }
 
     public List<String> lastLog(int n) {

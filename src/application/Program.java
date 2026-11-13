@@ -42,9 +42,7 @@ public class Program {
      */
     private static void playNetwork(Scanner sc, boolean host) throws InterruptedException {
         int me = host ? 1 : 2;
-        System.out.print("Porta [" + SocketMessageChannel.DEFAULT_PORT + "]: ");
-        String portText = sc.nextLine().trim();
-        int port = portText.isEmpty() ? SocketMessageChannel.DEFAULT_PORT : Integer.parseInt(portText);
+        int port = readPort(sc);
 
         SocketMessageChannel channel;
         SharedGameState shared = null;
@@ -52,6 +50,7 @@ public class Program {
             if (host) {
                 shared = openSharedMemory(port, true);
                 System.out.println("Aguardando adversário na porta " + port + "...");
+                printLocalAddresses();
                 channel = SocketMessageChannel.host(port);
             } else {
                 System.out.print("Endereço do servidor [localhost]: ");
@@ -108,10 +107,13 @@ public class Program {
             }
         }
 
+        game.awaitReceiver(1000); // deixa chegar a última mensagem (ex.: #MATE) antes de desenhar
         drawNetwork(game, who, null);
         if (game.getProtocol().getMatch().getCheckmate()) {
             boolean iWon = game.getProtocol().getMatch().getCurrentPlayer() == (host ? chess.Color.WHITE : chess.Color.BLACK);
             System.out.println(iWon ? "Você venceu!" : "Você perdeu.");
+        } else if (game.isSelfQuit()) {
+            System.out.println("Você saiu da partida.");
         } else if (game.getProtocol().isOpponentQuit()) {
             System.out.println("O adversário saiu da partida.");
         } else {
@@ -126,9 +128,7 @@ public class Program {
      * tabuleiro quando a versão muda.
      */
     private static void watch(Scanner sc) throws InterruptedException {
-        System.out.print("Porta da partida [" + SocketMessageChannel.DEFAULT_PORT + "]: ");
-        String portText = sc.nextLine().trim();
-        int port = portText.isEmpty() ? SocketMessageChannel.DEFAULT_PORT : Integer.parseInt(portText);
+        int port = readPort(sc);
 
         try (SharedGameState shared = SharedGameState.open(SharedGameState.defaultPath(port))) {
             long lastVersion = -1;
@@ -208,6 +208,47 @@ public class Program {
             System.out.println(error);
         }
         System.out.println();
+    }
+
+    /** Lê a porta; Enter usa a padrão. Repete enquanto o valor for inválido. */
+    private static int readPort(Scanner sc) {
+        while (true) {
+            System.out.print("Porta [" + SocketMessageChannel.DEFAULT_PORT + "]: ");
+            String text = sc.nextLine().trim();
+            if (text.isEmpty()) {
+                return SocketMessageChannel.DEFAULT_PORT;
+            }
+            try {
+                int port = Integer.parseInt(text);
+                if (port >= 1024 && port <= 65535) {
+                    return port;
+                }
+            } catch (NumberFormatException ignored) {
+            }
+            System.out.println("Porta inválida. Use um número entre 1024 e 65535.");
+        }
+    }
+
+    /** Mostra os IPs desta máquina, para o outro jogador digitar no modo cliente. */
+    private static void printLocalAddresses() {
+        try {
+            List<String> ips = new ArrayList<>();
+            for (java.net.NetworkInterface ni : Collections.list(java.net.NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback()) {
+                    continue;
+                }
+                for (java.net.InetAddress addr : Collections.list(ni.getInetAddresses())) {
+                    if (addr instanceof java.net.Inet4Address) {
+                        ips.add(addr.getHostAddress());
+                    }
+                }
+            }
+            System.out.println("Na mesma máquina, o adversário usa: localhost");
+            if (!ips.isEmpty()) {
+                System.out.println("Em outra máquina da rede, o adversário usa: " + String.join(" ou ", ips));
+            }
+        } catch (java.net.SocketException ignored) {
+        }
     }
 
     /** Lê uma casa (ex.: e2). Devolve null se o jogador digitar "sair". */
