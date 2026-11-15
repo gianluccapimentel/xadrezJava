@@ -21,6 +21,10 @@ public class King extends ChessPiece {
     }
 
 
+    private Color opponentColor() {
+        return getColor() == Color.WHITE ? Color.BLACK : Color.WHITE;
+    }
+
     private boolean canMove(Position position) {
         ChessPiece p = (ChessPiece)getBoard().piece(position);
         return p == null || p.getColor() != getColor();
@@ -92,18 +96,21 @@ public class King extends ChessPiece {
             if (testCastling(positionT1)) {
                 Position p1 = new Position(position.getRow(), position.getColumn() + 1);
                 Position p2 = new Position(position.getRow(), position.getColumn() + 2);
-                if (getBoard().piece(p1) == null && getBoard().piece(p2) == null) {
+                // o rei não pode passar por casa atacada (a casa final é testada pelo xeque)
+                if (getBoard().piece(p1) == null && getBoard().piece(p2) == null
+                        && !chessMatch.isSquareAttacked(p1, opponentColor())) {
                     mat[position.getRow()][position.getColumn() + 2] = true;
                 }
             }
 
             // long castling
             Position positionT2 = new Position(position.getRow(), position.getColumn() - 4);
-            if (testCastling(positionT1)) {
+            if (testCastling(positionT2)) {
                 Position p1 = new Position(position.getRow(), position.getColumn() - 1);
                 Position p2 = new Position(position.getRow(), position.getColumn() - 2);
                 Position p3 = new Position(position.getRow(), position.getColumn() - 3);
-                if (getBoard().piece(p1) == null && getBoard().piece(p2) == null && getBoard().piece(p3) == null) {
+                if (getBoard().piece(p1) == null && getBoard().piece(p2) == null && getBoard().piece(p3) == null
+                        && !chessMatch.isSquareAttacked(p1, opponentColor())) {
                     mat[position.getRow()][position.getColumn() - 2] = true;
                 }
             }

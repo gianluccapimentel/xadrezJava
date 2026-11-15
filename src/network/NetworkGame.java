@@ -33,6 +33,7 @@ public class NetworkGame {
     private volatile SharedGameState shared;
     private final AtomicInteger moves = new AtomicInteger();
     private volatile boolean selfQuit;
+    private volatile boolean closed;
     private volatile String sharedStatus = "memória compartilhada desligada";
 
     public NetworkGame(int me, MessageChannel channel) {
@@ -62,28 +63,52 @@ public class NetworkGame {
 
     private void receiveLoop() {
         try {
-            Message m;
-            while ((m = channel.receive()) != null) {
+            while (true) {
+                Message m;
+                try {
+                    m = channel.receive();
+                } catch (ProtocolException e) {
+                    // linha fora do protocolo: recusa e continua lendo
+                    Message reply = Message.erro(e.getMessage());
+                    channel.send(reply);
+                    record("enviado: " + reply.toWire());
+                    continue;
+                }
+                if (m == null) {
+                    break; // o adversário fechou a conexão
+                }
                 record("recebido: " + m.toWire());
-                List<Message> replies = protocol.receive(m);
+                List<Message> replies;
+                // Região crítica: aplicar o lance, contar e conferir a memória compartilhada
+                // acontecem juntos. A thread do jogo acorda assim que a vez passa, mas só
+                // consegue jogar (e regravar a memória) depois que esta conferência termina.
+                synchronized (protocol) {
+                    replies = protocol.receive(m);
+                    if (m.isMove() && replies.isEmpty()) {
+                        moves.incrementAndGet();
+                        checkSharedMemory(m);
+                    }
+                }
                 for (Message reply : replies) {
                     channel.send(reply);
                     record("enviado: " + reply.toWire());
                 }
-                if (m.isMove() && replies.isEmpty()) {
-                    moves.incrementAndGet();
-                    checkSharedMemory(m);
-                }
-                if (m.getType() == Message.Type.SAIR) {
+                Message.Type type = m.getType();
+                boolean lastMessage = type == Message.Type.SAIR || type == Message.Type.ERRO
+                        || ((type == Message.Type.MATE || type == Message.Type.EMPATE) && replies.isEmpty());
+                if (lastMessage) {
                     break;
                 }
             }
-        } catch (IOException | ProtocolException e) {
-            record("conexão: " + e.getMessage());
+        } catch (IOException e) {
+            if (!selfQuit && !closed) {
+                record("conexão: " + e.getMessage());
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }
-        if (!protocol.getMatch().getCheckmate() && !selfQuit) {
+        // a conexão acabou sem a partida ter terminado: o adversário foi embora
+        if (!protocol.isGameOver() && !selfQuit) {
             protocol.markOpponentGone();
         }
     }
@@ -95,27 +120,33 @@ public class NetworkGame {
 
     /** Executa e envia um lance do jogador local. */
     public void play(ChessPosition source, ChessPosition target, Supplier<Character> promotion) throws IOException {
-        List<Message> out = protocol.localMove(source, target, promotion);
-        moves.incrementAndGet();
-        // grava na memória ANTES de enviar: quando o adversário receber o lance,
-        // a memória já tem o estado novo para ele conferir
-        writeSharedMemory(out.get(0).toWire());
-        for (Message m : out) {
-            channel.send(m);
-            record("enviado: " + m.toWire());
+        // Região crítica (mesma trava da thread receptora): jogar, contar, gravar a
+        // memória e enviar formam um passo só.
+        synchronized (protocol) {
+            List<Message> out = protocol.localMove(source, target, promotion);
+            moves.incrementAndGet();
+            // grava na memória ANTES de enviar: quando o adversário receber o lance,
+            // a memória já tem o estado novo para ele conferir
+            writeSharedMemory(out.get(0).toWire());
+            for (Message m : out) {
+                channel.send(m);
+                record("enviado: " + m.toWire());
+            }
         }
     }
 
     private void writeSharedMemory(String lastMove) {
-        if (shared == null) {
+        SharedGameState mem = shared;
+        if (mem == null) {
             return;
         }
         var match = protocol.getMatch();
         int status = match.getCheckmate() ? SharedGameState.MATE
+                : match.getStalemate() ? SharedGameState.EMPATE
                 : match.getCheck() ? SharedGameState.XEQUE : SharedGameState.JOGANDO;
         int winner = match.getCheckmate() ? protocol.getVez().getMe() : 0;
         try {
-            shared.write(match, protocol.getVez().getVez(), moves.get(), lastMove, status, winner);
+            mem.write(match, protocol.getVez().getVez(), moves.get(), lastMove, status, winner);
             sharedStatus = "memória compartilhada: lance " + moves.get() + " gravado";
         } catch (IOException e) {
             disableShared("erro ao gravar: " + e.getMessage());
@@ -124,11 +155,12 @@ public class NetworkGame {
 
     /** Confere se a memória compartilhada mostra o mesmo tabuleiro que este processo calculou. */
     private void checkSharedMemory(Message m) {
-        if (shared == null) {
+        SharedGameState mem = shared;
+        if (mem == null) {
             return;
         }
         try {
-            SharedGameState.Snapshot snap = shared.read();
+            SharedGameState.Snapshot snap = mem.read();
             String mine = SharedGameState.encodeBoard(protocol.getMatch());
             if (snap != null && snap.board().equals(mine) && snap.lastMove().equals(m.toWire())
                     && snap.lances() == moves.get()) {
@@ -141,22 +173,28 @@ public class NetworkGame {
         }
     }
 
-    private void disableShared(String reason) {
+    /** synchronized: a thread do jogo e a receptora podem chegar aqui ao mesmo tempo. */
+    private synchronized void disableShared(String reason) {
+        SharedGameState mem = shared;
+        if (mem == null) {
+            return; // a outra thread já desligou
+        }
+        shared = null;
         sharedStatus = "memória compartilhada desligada: " + reason;
         record(sharedStatus);
         try {
-            shared.close();
+            mem.close();
         } catch (IOException ignored) {
         }
-        shared = null;
     }
 
     /** Desiste: avisa o adversário e encerra. */
     public void quit() throws IOException {
         selfQuit = true;
-        if (shared != null) {
+        SharedGameState mem = shared;
+        if (mem != null) {
             try {
-                shared.write(protocol.getMatch(), protocol.getVez().getVez(), moves.get(),
+                mem.write(protocol.getMatch(), protocol.getVez().getVez(), moves.get(),
                         Message.sair(protocol.getVez().getMe()).toWire(),
                         SharedGameState.DESISTENCIA, protocol.getVez().getOpponent());
             } catch (IOException ignored) {
@@ -176,6 +214,7 @@ public class NetworkGame {
     }
 
     public void close() {
+        closed = true;
         try {
             channel.close();
         } catch (IOException ignored) {

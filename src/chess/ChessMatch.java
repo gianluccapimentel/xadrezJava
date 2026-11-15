@@ -11,10 +11,12 @@ import java.util.List;
 public class ChessMatch {
 
     private int turn;
+    private int baseTurn;
     private Color currentPlayer;
     private Board board;
     private boolean check;
     private boolean checkMate;
+    private boolean stalemate;
     private ChessPiece enPassantVulnerable;
     private ChessPiece promoted;
 
@@ -48,6 +50,16 @@ public class ChessMatch {
         return checkMate;
     }
 
+    /** Afogamento: o jogador da vez não está em xeque e não tem lance legal. É empate. */
+    public boolean getStalemate() {
+        return stalemate;
+    }
+
+    /** A partida acabou (xeque-mate ou empate por afogamento). */
+    public boolean isGameOver() {
+        return checkMate || stalemate;
+    }
+
     public ChessPiece[][] getPieces() {
         ChessPiece[][] mat = new ChessPiece[board.getRows()][board.getColumns()];
 
@@ -73,9 +85,13 @@ public class ChessMatch {
     public ChessPiece performChessMove(ChessPosition sourcePosition, ChessPosition targetPosition) {
         Position source = sourcePosition.toPosition();
         Position target = targetPosition.toPosition();
+        if (isGameOver()) {
+            throw new ChessException("A partida ja terminou");
+        }
         validateSourcePosition(source);
         validateTargetPosition(source, target);
         Piece capturedPiece = makeMove(source, target);
+        baseTurn = turn;
 
         if (testCheck(currentPlayer)) {
             undoMove(source, target, capturedPiece);
@@ -84,32 +100,37 @@ public class ChessMatch {
 
         ChessPiece movedPiece = (ChessPiece)board.piece(target);
 
-        //promocao
+        //promocao (provisoriamente dama; o jogador pode trocar com replacePromotedPiece)
         promoted = null;
         if (movedPiece instanceof Pawn) {
             if (movedPiece.getColor() == Color.WHITE && target.getRow() == 0 || movedPiece.getColor() == Color.BLACK && target.getRow() == 7) {
                 promoted = (ChessPiece)board.piece(target);
-                promoted = replacePromotedPiece("Q");
+                promoted = swapPromotedPiece("Q");
             }
         }
 
-
-            check = testCheck(opponent(currentPlayer));
-
-        if (testCheckMate(opponent(currentPlayer))) {
-            checkMate = true;
-        } else {
-            nextTurn();
-        }
-
-        // enPassant
+        // enPassant: atualizado ANTES de testar o mate, porque a resposta do
+        // adversário pode ser justamente capturar en passant
         if (movedPiece instanceof Pawn && (target.getRow() == source.getRow() - 2 || target.getRow() == source.getRow() + 2)) {
             enPassantVulnerable = movedPiece;
         } else {
             enPassantVulnerable = null;
         }
 
+        evaluateEndOfMove(movedPiece.getColor());
+
         return (ChessPiece)capturedPiece;
+    }
+
+    /** Calcula xeque, xeque-mate e afogamento do adversário e passa a vez. */
+    private void evaluateEndOfMove(Color mover) {
+        Color other = opponent(mover);
+        check = testCheck(other);
+        checkMate = check && !hasLegalMove(other);
+        stalemate = !check && !hasLegalMove(other);
+        // no xeque-mate a vez fica com o vencedor (é assim que a tela mostra o vencedor)
+        currentPlayer = checkMate ? mover : other;
+        turn = baseTurn + (checkMate ? 0 : 1);
     }
 
     private void validateSourcePosition(Position position) {
@@ -131,11 +152,10 @@ public class ChessMatch {
         }
     }
 
-    private void nextTurn() {
-        turn++;
-        currentPlayer = (currentPlayer == Color.WHITE) ? Color.BLACK : Color.WHITE;
-    }
-
+    /**
+     * Troca a peça promovida pela escolhida (B, N, R ou Q) e recalcula xeque,
+     * xeque-mate e afogamento, que dependem de qual peça ficou na casa.
+     */
     public ChessPiece replacePromotedPiece(String type) {
         if(promoted == null) {
             throw new IllegalStateException("Não há peça para ser promovida");
@@ -143,6 +163,13 @@ public class ChessMatch {
         if (!type.equals("B") && !type.equals("R") && !type.equals("Q") && !type.equals("N")) {
             return promoted;
         }
+        ChessPiece newPiece = swapPromotedPiece(type);
+        promoted = newPiece;
+        evaluateEndOfMove(newPiece.getColor());
+        return newPiece;
+    }
+
+    private ChessPiece swapPromotedPiece(String type) {
 
         Position pos = promoted.getChessPosition().toPosition();
         Piece p = board.removePiece(pos);
@@ -284,11 +311,8 @@ public class ChessMatch {
         return false;
     }
 
-    private boolean testCheckMate(Color color) {
-        if (!testCheck(color)) {
-            return false;
-        }
-
+    /** O jogador tem pelo menos um lance que não deixa o próprio rei em xeque? */
+    private boolean hasLegalMove(Color color) {
         List<Piece> list = piecesOnTheBoard.
                 stream().
                 filter(x -> ((ChessPiece)x).getColor() == color).
@@ -305,13 +329,43 @@ public class ChessMatch {
                         boolean testCheck = testCheck(color);
                         undoMove(source, target, capturedPiece);
                         if (!testCheck) {
-                            return false;
+                            return true;
                         }
                     }
                 }
             }
         }
-        return true;
+        return false;
+    }
+
+    /**
+     * A casa é atacada por alguma peça da cor indicada? Usado no roque: o rei
+     * não pode passar por casa atacada. Rei e peão são tratados pela geometria,
+     * sem chamar possibleMoves, para não entrar em recursão com o roque.
+     */
+    public boolean isSquareAttacked(Position square, Color byColor) {
+        for (Piece piece : new ArrayList<>(piecesOnTheBoard)) {
+            ChessPiece p = (ChessPiece) piece;
+            if (p.getColor() != byColor) {
+                continue;
+            }
+            Position from = p.getChessPosition().toPosition();
+            int dr = square.getRow() - from.getRow();
+            int dc = square.getColumn() - from.getColumn();
+            if (p instanceof King) {
+                if (Math.abs(dr) <= 1 && Math.abs(dc) <= 1 && (dr != 0 || dc != 0)) {
+                    return true;
+                }
+            } else if (p instanceof Pawn) {
+                int forward = (p.getColor() == Color.WHITE) ? -1 : 1;
+                if (dr == forward && Math.abs(dc) == 1) {
+                    return true;
+                }
+            } else if (p.possibleMove(square)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private Color opponent(Color color) {

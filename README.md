@@ -25,8 +25,9 @@ Gera o `xadrez.jar`. Os scripts `jogar` e `testar` compilam sozinhos se o jar ai
 Saída esperada:
 
 ```
-OK: 63 verificações passaram.
-OK: 5 verificações de rede passaram.
+OK: 36 verificações das regras do xadrez passaram.
+OK: 133 verificações passaram.
+OK: 16 verificações de rede passaram.
 OK: 8 verificações de memória compartilhada passaram.
 Todos os testes passaram.
 ```
@@ -57,6 +58,12 @@ Cada tela mostra as últimas mensagens do protocolo (`enviado: 1Pe2e4`) e a linh
 
 As brancas veem "Você venceu!" e as pretas veem "Você perdeu.".
 
+## Regras implementadas
+
+Movimento de todas as peças, xeque, xeque-mate, roque pequeno e grande, en passant, promoção (dama, torre, bispo ou cavalo) e empate por afogamento.
+As regras são conferidas por um teste que conta os lances legais de sete posições e compara com os números conhecidos (perft).
+Não há empate por repetição de posição, pela regra dos 50 lances, por falta de material nem por acordo. Nesses casos a partida só termina se alguém digitar `sair`.
+
 ## 4. Jogar em duas máquinas
 
 1. As duas máquinas precisam estar na **mesma rede** (mesmo Wi-Fi ou cabo).
@@ -75,6 +82,8 @@ Rode `application.Program` normalmente. Para abrir a segunda instância, vá em 
 | Mensagem | O que fazer |
 |---|---|
 | `Address already in use` | Já existe um servidor nessa porta. Feche-o ou use outra porta (ex.: 5001) nos dois lados. |
+| `O servidor não respondeu em 5 segundos` | O IP está errado ou o firewall bloqueou. Confira o IP mostrado na tela do servidor. |
+| O firewall do Windows abre uma janela durante `testar.bat` | É o teste de rede abrindo uma porta local. Pode permitir ou cancelar: o teste usa só `localhost`. |
 | `Connection refused` | O servidor ainda não está esperando, ou o IP/porta está errado. Abra o servidor primeiro. |
 | O cliente não conecta de outra máquina | Libere o Java no firewall do Windows (redes privadas). |
 | `javac` não é reconhecido | Instale o JDK 17+ e coloque a pasta `bin` dele no PATH. |

@@ -29,7 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
  *   0  int  MAGIC (0x58414452 = "XADR")
  *   4  int  vez (1 ou 2)
  *   8  int  número de lances jogados
- *  12  int  status (0 jogando, 1 xeque, 2 xeque-mate, 3 desistência)
+ *  12  int  status (0 jogando, 1 xeque, 2 xeque-mate, 3 desistência, 4 empate)
  *  16  int  vencedor (0 nenhum, 1 ou 2)
  *  20  int  tamanho do último lance
  *  24  16B  último lance no formato do protocolo (ex.: "1Pe2e4")
@@ -43,7 +43,7 @@ public class SharedGameState implements AutoCloseable {
     public static final int SIZE = 128;
     public static final int MAGIC = 0x58414452;
 
-    public static final int JOGANDO = 0, XEQUE = 1, MATE = 2, DESISTENCIA = 3;
+    public static final int JOGANDO = 0, XEQUE = 1, MATE = 2, DESISTENCIA = 3, EMPATE = 4;
 
     private static final int OFF_MAGIC = 0, OFF_VEZ = 4, OFF_LANCES = 8, OFF_STATUS = 12,
             OFF_VENCEDOR = 16, OFF_LAST_LEN = 20, OFF_LAST = 24, OFF_BOARD = 40,
@@ -108,7 +108,9 @@ public class SharedGameState implements AutoCloseable {
             mem.put(OFF_BOARD + i, (byte) board.charAt(i));
         }
         mem.putLong(OFF_VERSAO, mem.getLong(OFF_VERSAO) + 1);
-        mem.force(); // garante que o outro processo vê os bytes
+        // Não é preciso chamar force(): os processos mapeiam as MESMAS páginas de
+        // memória, então a escrita já está visível para o outro. force() só
+        // serviria para gravar no disco, o que a partida não precisa.
     }
 
     /** Lê uma cópia consistente do estado (nunca pega uma escrita pela metade). */
@@ -196,11 +198,17 @@ public class SharedGameState implements AutoCloseable {
     /** Cópia do que estava na memória num instante. */
     public record Snapshot(int vez, int lances, int status, int vencedor, String lastMove, String board, long versao) {
 
+        /** A partida registrada na memória já acabou? */
+        public boolean finished() {
+            return status == MATE || status == DESISTENCIA || status == EMPATE;
+        }
+
         public String statusText() {
             return switch (status) {
                 case XEQUE -> "xeque";
                 case MATE -> "xeque-mate, vencedor: jogador " + vencedor;
                 case DESISTENCIA -> "desistência, vencedor: jogador " + vencedor;
+                case EMPATE -> "empate por afogamento";
                 default -> "jogando";
             };
         }

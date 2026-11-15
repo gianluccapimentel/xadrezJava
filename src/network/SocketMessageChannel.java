@@ -4,8 +4,10 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 
 /**
@@ -17,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 public class SocketMessageChannel implements MessageChannel {
 
     public static final int DEFAULT_PORT = 5000;
+    private static final int CONNECT_TIMEOUT_MS = 5000;
 
     private final Socket socket;
     private final BufferedReader in;
@@ -40,13 +43,28 @@ public class SocketMessageChannel implements MessageChannel {
 
     /** Lado cliente: conecta no servidor e espera o #BEMVINDO. */
     public static SocketMessageChannel join(String host, int port) throws IOException {
-        SocketMessageChannel channel = new SocketMessageChannel(new Socket(host, port));
-        Message hello = channel.receive();
-        if (hello == null || hello.getType() != Message.Type.BEMVINDO || hello.getPlayer() != 2) {
-            channel.close();
-            throw new IOException("O servidor não respondeu com #BEMVINDO 2");
+        Socket socket = new Socket();
+        try {
+            // com tempo limite: um endereço errado não deixa o jogo travado
+            socket.connect(new InetSocketAddress(host, port), CONNECT_TIMEOUT_MS);
+            socket.setSoTimeout(CONNECT_TIMEOUT_MS);
+            SocketMessageChannel channel = new SocketMessageChannel(socket);
+            Message hello = channel.receive();
+            if (hello == null || hello.getType() != Message.Type.BEMVINDO || hello.getPlayer() != 2) {
+                throw new IOException("O servidor não respondeu com #BEMVINDO 2");
+            }
+            socket.setSoTimeout(0); // durante a partida, esperar o adversário sem limite
+            return channel;
+        } catch (SocketTimeoutException e) {
+            socket.close();
+            throw new IOException("O servidor não respondeu em " + CONNECT_TIMEOUT_MS / 1000 + " segundos");
+        } catch (ProtocolException e) {
+            socket.close();
+            throw new IOException("Quem respondeu nessa porta não é o jogo de xadrez");
+        } catch (IOException e) {
+            socket.close();
+            throw e;
         }
-        return channel;
     }
 
     /**
@@ -59,7 +77,11 @@ public class SocketMessageChannel implements MessageChannel {
         out.println(m.toWire());
     }
 
-    /** Lê a próxima mensagem. Devolve null quando o outro lado fecha a conexão. */
+    /**
+     * Lê a próxima mensagem. Devolve null quando o outro lado fecha a conexão.
+     * Lança ProtocolException se a linha recebida não segue o protocolo; nesse
+     * caso a conexão continua válida e a próxima linha pode ser lida normalmente.
+     */
     @Override
     public Message receive() throws IOException {
         String line = in.readLine();

@@ -25,14 +25,20 @@ public class Program {
         System.out.println("4 - Entrar em partida em rede (cliente, pretas)");
         System.out.println("5 - Assistir partida pela memória compartilhada");
         System.out.print("Escolha: ");
-        String option = sc.nextLine().trim();
 
-        switch (option) {
-            case "2" -> playThroughProtocol(sc);
-            case "3" -> playNetwork(sc, true);
-            case "4" -> playNetwork(sc, false);
-            case "5" -> watch(sc);
-            default -> playLocal(sc);
+        try {
+            String option = sc.nextLine().trim();
+            switch (option) {
+                case "2" -> playThroughProtocol(sc);
+                case "3" -> playNetwork(sc, true);
+                case "4" -> playNetwork(sc, false);
+                case "5" -> watch(sc);
+                default -> playLocal(sc);
+            }
+        } catch (NoSuchElementException e) {
+            // a entrada foi fechada (Ctrl+Z / Ctrl+D): sai sem mostrar erro de Java
+            System.out.println();
+            System.out.println("Entrada encerrada. Fim do jogo.");
         }
     }
 
@@ -68,6 +74,7 @@ public class Program {
         game.start();
         String who = host ? "BRANCAS (jogador 1)" : "PRETAS (jogador 2)";
         String error = null;
+        boolean endedByMe = false; // a partida acabou num lance ou desistência deste jogador
 
         while (!game.isOver()) {
             if (!game.getProtocol().getVez().isMyTurn()) {
@@ -84,40 +91,51 @@ public class Program {
                 ChessPosition source = readPositionOrQuit(sc);
                 if (source == null) {
                     game.quit();
+                    endedByMe = true;
                     break;
                 }
-                boolean[][] possibleMoves = game.getProtocol().getMatch().possibleMoves(source);
-                UI.clearScreen();
-                UI.printBoard(game.getProtocol().getMatch().getPieces(), possibleMoves);
+                // synchronized: o tabuleiro também é usado pela thread receptora
+                synchronized (game.getProtocol()) {
+                    boolean[][] possibleMoves = game.getProtocol().getMatch().possibleMoves(source);
+                    UI.clearScreen();
+                    UI.printBoard(game.getProtocol().getMatch().getPieces(), possibleMoves);
+                }
                 System.out.println();
                 System.out.println("Destino: ");
                 ChessPosition target = readPositionOrQuit(sc);
                 if (target == null) {
                     game.quit();
+                    endedByMe = true;
                     break;
                 }
                 game.play(source, target, () -> readPromotion(sc).charAt(0));
+                endedByMe = game.isOver();
             }
             catch (ChessException | ProtocolException | InputMismatchException e) {
                 error = e.getMessage();
             }
             catch (IOException e) {
-                System.out.println("Conexão perdida: " + e.getMessage());
+                game.getProtocol().markOpponentGone();
                 break;
             }
         }
 
-        game.awaitReceiver(1000); // deixa chegar a última mensagem (ex.: #MATE) antes de desenhar
+        if (!endedByMe) {
+            game.awaitReceiver(1000); // deixa chegar a última mensagem (ex.: #MATE) antes de desenhar
+        }
         drawNetwork(game, who, null);
-        if (game.getProtocol().getMatch().getCheckmate()) {
-            boolean iWon = game.getProtocol().getMatch().getCurrentPlayer() == (host ? chess.Color.WHITE : chess.Color.BLACK);
+        ChessMatch finalMatch = game.getProtocol().getMatch();
+        if (finalMatch.getCheckmate()) {
+            boolean iWon = finalMatch.getCurrentPlayer() == (host ? chess.Color.WHITE : chess.Color.BLACK);
             System.out.println(iWon ? "Você venceu!" : "Você perdeu.");
+        } else if (finalMatch.getStalemate()) {
+            System.out.println("Empate por afogamento.");
         } else if (game.isSelfQuit()) {
             System.out.println("Você saiu da partida.");
-        } else if (game.getProtocol().isOpponentQuit()) {
-            System.out.println("O adversário saiu da partida.");
+        } else if (game.getProtocol().isDesynced()) {
+            System.out.println("Partida encerrada: o adversário recusou um lance, os tabuleiros ficaram diferentes.");
         } else {
-            System.out.println("Você saiu da partida.");
+            System.out.println("O adversário saiu da partida (ou a conexão caiu).");
         }
         game.close();
     }
@@ -132,9 +150,14 @@ public class Program {
 
         try (SharedGameState shared = SharedGameState.open(SharedGameState.defaultPath(port))) {
             long lastVersion = -1;
+            boolean first = true;
             while (true) {
                 SharedGameState.Snapshot snap = shared.read();
-                if (snap != null && snap.versao() != lastVersion) {
+                if (first && snap != null && snap.finished()) {
+                    // sobrou na memória o fim de uma partida antiga nessa porta
+                    System.out.println("A última partida nessa porta já terminou. Esperando uma nova começar...");
+                    lastVersion = snap.versao();
+                } else if (snap != null && snap.versao() != lastVersion) {
                     lastVersion = snap.versao();
                     UI.clearScreen();
                     System.out.println("Assistindo pela memória compartilhada: " + shared.getPath());
@@ -143,13 +166,13 @@ public class Program {
                     System.out.println("Lances: " + snap.lances() + "   Último: " + (snap.lastMove().isEmpty() ? "-" : snap.lastMove()));
                     System.out.println("Vez do jogador " + snap.vez() + "   Situação: " + snap.statusText());
                     System.out.println("Versão da memória: " + snap.versao());
-                    if (snap.status() == SharedGameState.MATE || snap.status() == SharedGameState.DESISTENCIA) {
+                    if (snap.finished()) {
                         return;
                     }
-                } else if (snap == null && lastVersion == -1) {
+                } else if (snap == null && first) {
                     System.out.println("Esperando a partida começar...");
-                    lastVersion = 0;
                 }
+                first = false;
                 Thread.sleep(300);
             }
         } catch (IOException e) {
@@ -192,7 +215,11 @@ public class Program {
     private static void drawNetwork(NetworkGame game, String who, String error) {
         UI.clearScreen();
         System.out.println("Você joga com as " + who);
-        UI.printMatch(game.getProtocol().getMatch(), game.getProtocol().getCaptured());
+        // synchronized: enquanto esta thread desenha, a receptora não pode estar
+        // no meio de um lance (o teste de xeque-mate move peças temporariamente)
+        synchronized (game.getProtocol()) {
+            UI.printMatch(game.getProtocol().getMatch(), game.getProtocol().getCaptured());
+        }
         System.out.println(game.getSharedStatus());
         List<String> log = game.lastLog(4);
         if (!log.isEmpty()) {
@@ -253,6 +280,9 @@ public class Program {
 
     /** Lê uma casa (ex.: e2). Devolve null se o jogador digitar "sair". */
     private static ChessPosition readPositionOrQuit(Scanner sc) {
+        if (!sc.hasNextLine()) {
+            return null; // entrada fechada: trata como desistência, para avisar o adversário
+        }
         String s = sc.nextLine().trim();
         if (s.equalsIgnoreCase("sair")) {
             return null;
@@ -269,7 +299,7 @@ public class Program {
         ChessMatch chessMatch = new ChessMatch();
         List<ChessPiece> captured = new ArrayList<>();
 
-        while (!chessMatch.getCheckmate()) {
+        while (!chessMatch.isGameOver()) {
             try {
                 UI.clearScreen();
                 UI.printMatch(chessMatch, captured);

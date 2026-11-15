@@ -31,7 +31,13 @@ public class SharedMemorySelfTest {
             twoProcessesCounter(path);
             twoThreadsCounter(path);
         } finally {
-            Files.deleteIfExists(path);
+            // No Windows, um arquivo mapeado em memória não pode ser apagado enquanto
+            // o mapeamento existe. Nesse caso ele fica para ser apagado na saída.
+            try {
+                Files.deleteIfExists(path);
+            } catch (java.io.IOException e) {
+                path.toFile().deleteOnExit();
+            }
         }
         System.out.println("OK: " + passed + " verificações de memória compartilhada passaram.");
     }

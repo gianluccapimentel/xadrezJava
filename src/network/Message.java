@@ -14,6 +14,7 @@ import chess.ChessPosition;
  *   #BEMVINDO 2    servidor avisa ao cliente que ele é o jogador 2
  *   #XEQUE 2       o jogador 2 está em xeque
  *   #MATE 1        xeque-mate, o jogador 1 venceu
+ *   #EMPATE        empate por afogamento (quem deve jogar não tem lance legal)
  *   #ERRO texto    lance recusado, com o motivo
  *   #SAIR 1        o jogador 1 abandonou a partida
  *
@@ -22,7 +23,7 @@ import chess.ChessPosition;
  */
 public final class Message {
 
-    public enum Type { MOVE, BEMVINDO, XEQUE, MATE, ERRO, SAIR }
+    public enum Type { MOVE, BEMVINDO, XEQUE, MATE, EMPATE, ERRO, SAIR }
 
     private static final String PIECES = "KQRBNP";
     private static final String PROMOTIONS = "QRBN";
@@ -73,6 +74,8 @@ public final class Message {
     public static Message mate(int winner)     { checkPlayer(winner); return new Message(Type.MATE, winner, ' ', null, null, null, null); }
     public static Message sair(int player)     { checkPlayer(player); return new Message(Type.SAIR, player, ' ', null, null, null, null); }
 
+    public static Message empate() { return new Message(Type.EMPATE, 0, ' ', null, null, null, null); }
+
     public static Message erro(String text) {
         String clean = text == null ? "" : text.replace('\n', ' ').replace('\r', ' ').trim();
         return new Message(Type.ERRO, 0, ' ', null, null, null, clean);
@@ -122,6 +125,12 @@ public final class Message {
         }
         return switch (type) {
             case ERRO -> erro(arg);
+            case EMPATE -> {
+                if (!arg.isEmpty()) {
+                    throw new ProtocolException("#EMPATE não leva argumento");
+                }
+                yield empate();
+            }
             case BEMVINDO -> bemVindo(parsePlayer(arg));
             case XEQUE -> xeque(parsePlayer(arg));
             case MATE -> mate(parsePlayer(arg));
@@ -159,6 +168,7 @@ public final class Message {
         return switch (type) {
             case MOVE -> "" + player + piece + source + target + (promotion == null ? "" : "=" + promotion);
             case ERRO -> text.isEmpty() ? "#ERRO" : "#ERRO " + text;
+            case EMPATE -> "#EMPATE";
             default -> "#" + type.name() + " " + player;
         };
     }

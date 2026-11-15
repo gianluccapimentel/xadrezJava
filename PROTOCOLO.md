@@ -26,7 +26,8 @@ Formato: `<vez><peça><origem><destino>[=<promoção>]`
 | `#BEMVINDO 2` | servidor   | Conexão aceita. Você é o jogador 2 (pretas) |
 | `#XEQUE 2`    | quem jogou | O jogador 2 está em xeque                   |
 | `#MATE 1`     | quem jogou | Xeque-mate: o jogador 1 venceu              |
-| `#ERRO texto` | quem recebeu | Lance recusado, com o motivo              |
+| `#EMPATE`     | quem jogou | Empate por afogamento: quem deve jogar não está em xeque e não tem lance legal |
+| `#ERRO texto` | quem recebeu | Mensagem recusada, com o motivo           |
 | `#SAIR 1`     | qualquer um | O jogador 1 abandonou a partida            |
 
 ## A variável `vez`
@@ -42,6 +43,10 @@ Quando um processo recebe um lance, ele confere três coisas:
 3. A peça informada é a que está na casa de origem no seu tabuleiro.
 
 Se algo não confere, ele responde `#ERRO` e não altera a vez.
+
+Quem **recebe** um `#ERRO` encerra a partida. Esse processo já tinha aplicado o próprio lance, então os dois tabuleiros ficaram diferentes e não há como continuar. Sem isso, cada lado ficaria esperando o outro para sempre. Entre dois processos deste jogo isso não acontece, porque um lance legal de um lado é sempre legal do outro. Serve de proteção contra um adversário com outro programa ou com defeito.
+
+O `#XEQUE` é conferido com o estado logo depois do lance recebido, e não com o tabuleiro do momento. A vez passa assim que o lance é aplicado, então o jogador pode responder ao xeque antes de a linha `#XEQUE` ser lida.
 
 Os métodos de `TurnControl` são `synchronized`. A partir do sprint 2, a thread que lê o socket e a thread do jogo usam o mesmo objeto, e `esperarMinhaVez()` usa `wait()` e `notifyAll()` para bloquear o jogador até a vez dele chegar.
 
@@ -92,14 +97,16 @@ Na sua vez, digite a casa de origem e a de destino (ex.: `e2` e `e4`). Para desi
    - **thread do jogo:** lê o teclado na sua vez e envia o lance;
    - **thread receptora:** lê o socket o tempo todo, valida e aplica o lance do adversário no seu tabuleiro.
 3. Quando não é a sua vez, a thread do jogo dorme em `TurnControl.esperarMinhaVez()` (`wait()`). Quando a receptora aplica o lance do adversário, ela chama `passarVez()` (`notifyAll()`) e acorda o jogador.
-4. A partida termina com `#MATE`, `#SAIR` ou se a conexão cair. Nos três casos `TurnControl.encerrar()` acorda quem estiver esperando.
+4. A partida termina com `#MATE`, `#EMPATE`, `#SAIR`, com um `#ERRO` recebido ou se a conexão cair. Em todos os casos `TurnControl.encerrar()` acorda quem estiver esperando.
+5. Uma linha fora do protocolo não derruba a partida: a receptora responde `#ERRO` e continua lendo.
 
 ### Exclusão mútua até aqui
 
 | Recurso compartilhado entre as threads | Como é protegido |
 |---|---|
 | variável `vez` (`TurnControl`) | métodos `synchronized`, com `wait`/`notifyAll` |
-| tabuleiro (`MatchProtocol` / `ChessMatch`) | métodos `synchronized` de `MatchProtocol` |
+| tabuleiro (`MatchProtocol` / `ChessMatch`) | métodos `synchronized` de `MatchProtocol`; a tela também desenha dentro de `synchronized (protocolo)` |
+| "aplicar o lance + conferir a memória" e "jogar + gravar a memória + enviar" | cada sequência roda inteira dentro de `synchronized (protocolo)` em `NetworkGame` |
 | escrita no socket | `SocketMessageChannel.send` é `synchronized`, para as linhas não se misturarem |
 | histórico de mensagens | `Collections.synchronizedList` |
 
@@ -108,8 +115,9 @@ A memória compartilhada entre os **processos** está descrita na seção do spr
 ### Testes
 
 ```
-java -cp bin network.ProtocolSelfTest   # protocolo e regras (63 verificações)
-java -cp bin network.NetworkSelfTest    # mate do pastor e desistência por localhost
+java -cp bin chess.ChessRulesSelfTest      # regras do xadrez (contagem de lances, roque, promoção, en passant, afogamento)
+java -cp bin network.ProtocolSelfTest      # notação, vez e partidas completas trocando só texto
+java -cp bin network.NetworkSelfTest       # partidas por socket em localhost, inclusive 20 partidas rápidas seguidas
 java -cp bin network.SharedMemorySelfTest  # memória compartilhada e exclusão mútua entre processos
 ```
 
@@ -124,7 +132,7 @@ Os processos da partida compartilham um bloco de 128 bytes. A classe é `SharedG
 | 0 | 4 | número mágico `XADR` (diz que a partida começou) |
 | 4 | 4 | `vez` (1 ou 2) |
 | 8 | 4 | número de lances jogados |
-| 12 | 4 | situação: 0 jogando, 1 xeque, 2 xeque-mate, 3 desistência |
+| 12 | 4 | situação: 0 jogando, 1 xeque, 2 xeque-mate, 3 desistência, 4 empate |
 | 16 | 4 | vencedor (0, 1 ou 2) |
 | 20 | 4 | tamanho do último lance |
 | 24 | 16 | último lance, no formato do protocolo (`1Pe2e4`) |
@@ -138,6 +146,8 @@ Os processos da partida compartilham um bloco de 128 bytes. A classe é `SharedG
 2. Quem **joga** grava o novo estado na memória e **só depois** envia o lance pelo socket.
 3. Quem **recebe** aplica o lance no próprio tabuleiro, lê a memória e confere se os dois tabuleiros são iguais. A tela mostra `memória compartilhada: lance 7 confere (versão 8)`.
 4. Um **espectador** (opção 5 do menu) é um terceiro processo que não abre socket nenhum. Ele lê a memória a cada 300 ms e redesenha o tabuleiro quando a versão muda.
+
+Os processos enxergam as escritas uns dos outros na hora, porque o sistema operacional entrega as mesmas páginas de memória a todos. Não é preciso gravar no disco (`force()`).
 
 Se os jogadores estiverem em máquinas diferentes, a memória não é a mesma e a conferência falha. Nesse caso o jogo desliga a memória compartilhada e continua só pelo socket.
 
@@ -158,7 +168,8 @@ Com isso, nenhum processo lê um tabuleiro gravado pela metade e duas escritas n
 |---|---|---|
 | memória compartilhada (`SharedGameState`) | processos e threads | `FileLock` + `ReentrantLock` |
 | variável `vez` (`TurnControl`) | thread do jogo e receptora | `synchronized` + `wait`/`notifyAll` |
-| tabuleiro local (`MatchProtocol`) | thread do jogo e receptora | `synchronized` |
+| tabuleiro local (`MatchProtocol`) | thread do jogo, receptora e desenho da tela | `synchronized` |
+| sequência lance + memória + envio (`NetworkGame`) | thread do jogo e receptora | `synchronized (protocolo)` |
 | escrita no socket | thread do jogo e receptora | `synchronized` em `send` |
 
 ### Para ver funcionando (três terminais)

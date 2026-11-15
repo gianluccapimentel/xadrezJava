@@ -43,7 +43,10 @@ public class UI {
         printCapturedPieces(captured);
         System.out.println();
         System.out.println("Turno: " + chessMatch.getTurn());
-        if (!chessMatch.getCheckmate()) {
+        if (chessMatch.getStalemate()) {
+            System.out.println(ANSI_RED + ">>>EMPATE<<<" + ANSI_RESET);
+            System.out.println("Afogamento: " + chessMatch.getCurrentPlayer() + " nao esta em cheque e nao tem lance legal.");
+        } else if (!chessMatch.getCheckmate()) {
             System.out.println("Esperando jogador: " + chessMatch.getCurrentPlayer());
             if (chessMatch.getCheck()) {
                 System.out.println(ANSI_RED);
