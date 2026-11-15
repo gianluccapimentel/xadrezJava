@@ -14,7 +14,7 @@ O protocolo e a memória estão explicados em [PROTOCOLO.md](PROTOCOLO.md).
 |---|---|
 | dois cliques em `compilar.bat` | `./compilar.sh` |
 
-Gera o `xadrez.jar`. Os scripts `jogar` e `testar` compilam sozinhos se o jar ainda não existir.
+Compila para a pasta `bin` e gera o `xadrez.jar`. Os scripts `jogar` e `testar` compilam sozinhos se ainda não houver nada compilado. No Windows, se o comando `jar` não estiver no PATH, o `xadrez.jar` não é gerado e o jogo roda direto da pasta `bin`.
 
 ## 2. Testes automáticos
 
