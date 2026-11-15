@@ -3,6 +3,8 @@
 Xadrez de console para dois jogadores. A comunicação é por **sockets TCP**, cada processo guarda a sua variável **vez**, e os processos dividem uma **memória compartilhada** protegida por **exclusão mútua**.
 O protocolo e a memória estão explicados em [PROTOCOLO.md](PROTOCOLO.md).
 
+**Integrantes:** Gianlucca Barraco Pimentel (RA 26007478-2) e Nickolay Alexander Justini Dias (RA 26007083-2)
+
 ## Requisitos
 
 - **JDK 17 ou mais novo.** Confira com `javac -version`.
