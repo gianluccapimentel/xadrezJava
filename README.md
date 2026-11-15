@@ -5,6 +5,20 @@ O protocolo e a memória estão explicados em [PROTOCOLO.md](PROTOCOLO.md).
 
 **Integrantes:** Gianlucca Barraco Pimentel (RA 26007478-2) e Nickolay Alexander Justini Dias (RA 26007083-2)
 
+## Opções do menu
+
+Ao abrir o jogo (`jogar.bat` ou `./jogar.sh`), aparece um menu com cinco opções:
+
+| Opção | O que faz |
+|---|---|
+| `1` Jogo local (original) | O xadrez original: os dois jogadores se revezam no mesmo terminal, sem rede e sem protocolo. |
+| `2` Jogo local pelo protocolo de mensagens | Também no mesmo terminal, mas cada jogador tem o seu próprio tabuleiro e os lances passam pelas mensagens do protocolo (ex.: `1Pe2e4`), sem socket. Serve para ver a notação funcionando. |
+| `3` Criar partida em rede | Abre o servidor e joga com as **brancas**. Fica esperando o adversário conectar. |
+| `4` Entrar em partida em rede | Conecta no servidor e joga com as **pretas**. Na mesma máquina, o endereço é `localhost`; em outra, o IP mostrado pelo servidor. |
+| `5` Assistir partida | Espectador: acompanha ao vivo a partida em andamento, lendo só a memória compartilhada (sem socket). Funciona no mesmo computador dos jogadores. |
+
+Para testar o multiplayer na mesma máquina, rode `jogar-dois.bat` (ou abra duas janelas com `jogar.bat`) e escolha `3` em uma e `4` na outra.
+
 ## Requisitos
 
 - **JDK 17 ou mais novo.** Confira com `javac -version`.
